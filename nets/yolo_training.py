@@ -28,13 +28,13 @@ class YOLOLoss(nn.Module):
 
         self.balance        = [0.4, 1.0, 4]
         self.stride         = [32, 16, 8]
-        
+
         self.box_ratio      = 0.05
         self.obj_ratio      = 1 * (input_shape[0] * input_shape[1]) / (640 ** 2)
         self.cls_ratio      = 0.5 * (num_classes / 80)
         self.threshold      = 4
 
-        self.cp, self.cn                    = smooth_BCE(eps=label_smoothing)  
+        self.cp, self.cn                    = smooth_BCE(eps=label_smoothing)
         self.BCEcls, self.BCEobj, self.gr   = nn.BCEWithLogitsLoss(), nn.BCEWithLogitsLoss(), 1
 
     def bbox_iou(self, box1, box2, x1y1x2y2=True, GIoU=False, DIoU=False, CIoU=False, eps=1e-7):
@@ -77,8 +77,8 @@ class YOLOLoss(nn.Module):
                 return iou - (c_area - union) / c_area  # GIoU
         else:
             return iou  # IoU
-    
-    def __call__(self, predictions, targets, imgs): 
+
+    def __call__(self, predictions, targets, imgs):
         #-------------------------------------------#
         #   对输入进来的预测结果进行reshape
         #   bs, 255, 20, 20 => bs, 3, 20, 20, 85
@@ -88,7 +88,7 @@ class YOLOLoss(nn.Module):
         for i in range(len(predictions)):
             bs, _, h, w = predictions[i].size()
             predictions[i] = predictions[i].view(bs, len(self.anchors_mask[i]), -1, h, w).permute(0, 1, 3, 4, 2).contiguous()
-            
+
         #-------------------------------------------#
         #   获得工作的设备
         #-------------------------------------------#
@@ -97,7 +97,7 @@ class YOLOLoss(nn.Module):
         #   初始化三个部分的损失
         #-------------------------------------------#
         cls_loss, box_loss, obj_loss    = torch.zeros(1, device = device), torch.zeros(1, device = device), torch.zeros(1, device = device)
-        
+
         #-------------------------------------------#
         #   进行正样本的匹配
         #-------------------------------------------#
@@ -105,12 +105,12 @@ class YOLOLoss(nn.Module):
         #-------------------------------------------#
         #   计算获得对应特征层的高宽
         #-------------------------------------------#
-        feature_map_sizes = [torch.tensor(prediction.shape, device=device)[[3, 2, 3, 2]].type_as(prediction) for prediction in predictions] 
-    
+        feature_map_sizes = [torch.tensor(prediction.shape, device=device)[[3, 2, 3, 2]].type_as(prediction) for prediction in predictions]
+
         #-------------------------------------------#
         #   计算损失，对三个特征层各自进行处理
         #-------------------------------------------#
-        for i, prediction in enumerate(predictions): 
+        for i, prediction in enumerate(predictions):
             #-------------------------------------------#
             #   image, anchor, gridy, gridx
             #-------------------------------------------#
@@ -166,7 +166,7 @@ class YOLOLoss(nn.Module):
             #   并且乘上每个特征层的比例
             #-------------------------------------------#
             obj_loss += self.BCEobj(prediction[..., 4], tobj) * self.balance[i]  # obj loss
-            
+
         #-------------------------------------------#
         #   将各个部分的损失乘上比例
         #   全加起来后，乘上batch_size
@@ -175,10 +175,10 @@ class YOLOLoss(nn.Module):
         obj_loss    *= self.obj_ratio
         cls_loss    *= self.cls_ratio
         bs          = tobj.shape[0]
-        
+
         loss    = box_loss + obj_loss + cls_loss
         return loss
-        
+
     def xywh2xyxy(self, x):
         # Convert nx4 boxes from [x, y, w, h] to [x1, y1, x2, y2]
         y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
@@ -187,7 +187,7 @@ class YOLOLoss(nn.Module):
         y[:, 2] = x[:, 0] + x[:, 2] / 2  # bottom right x
         y[:, 3] = x[:, 1] + x[:, 3] / 2  # bottom right y
         return y
-    
+
     def box_iou(self, box1, box2):
         # https://github.com/pytorch/vision/blob/master/torchvision/ops/boxes.py
         """
@@ -223,7 +223,7 @@ class YOLOLoss(nn.Module):
         matching_gis        = [[] for _ in predictions]
         matching_targets    = [[] for _ in predictions]
         matching_anchs      = [[] for _ in predictions]
-        
+
         #-------------------------------------------#
         #   一共三层
         #-------------------------------------------#
@@ -243,7 +243,7 @@ class YOLOLoss(nn.Module):
             #-------------------------------------------#
             if this_target.shape[0] == 0:
                 continue
-            
+
             #-------------------------------------------#
             #   真实框的坐标进行缩放
             #-------------------------------------------#
@@ -262,7 +262,7 @@ class YOLOLoss(nn.Module):
             all_gj      = []
             all_gi      = []
             all_anch    = []
-            
+
             #-------------------------------------------#
             #   对三个layer进行循环
             #-------------------------------------------#
@@ -273,22 +273,22 @@ class YOLOLoss(nn.Module):
                 #-------------------------------------------#
                 b, a, gj, gi    = indices[i]
                 idx             = (b == batch_idx)
-                b, a, gj, gi    = b[idx], a[idx], gj[idx], gi[idx]       
-                       
+                b, a, gj, gi    = b[idx], a[idx], gj[idx], gi[idx]
+
                 all_b.append(b)
                 all_a.append(a)
                 all_gj.append(gj)
                 all_gi.append(gi)
                 all_anch.append(anch[i][idx])
                 from_which_layer.append(torch.ones(size=(len(b),)) * i)
-                
+
                 #-------------------------------------------#
                 #   取出这个真实框对应的预测结果
                 #-------------------------------------------#
-                fg_pred = prediction[b, a, gj, gi]                
+                fg_pred = prediction[b, a, gj, gi]
                 p_obj.append(fg_pred[:, 4:5])
                 p_cls.append(fg_pred[:, 5:])
-                
+
                 #-------------------------------------------#
                 #   获得网格后，进行解码
                 #-------------------------------------------#
@@ -298,14 +298,14 @@ class YOLOLoss(nn.Module):
                 pxywh   = torch.cat([pxy, pwh], dim=-1)
                 pxyxy   = self.xywh2xyxy(pxywh)
                 pxyxys.append(pxyxy)
-            
+
             #-------------------------------------------#
             #   判断是否存在对应的预测框，不存在则跳过
             #-------------------------------------------#
             pxyxys = torch.cat(pxyxys, dim=0)
             if pxyxys.shape[0] == 0:
                 continue
-            
+
             #-------------------------------------------#
             #   进行堆叠
             #-------------------------------------------#
@@ -317,7 +317,7 @@ class YOLOLoss(nn.Module):
             all_gj      = torch.cat(all_gj, dim=0)
             all_gi      = torch.cat(all_gi, dim=0)
             all_anch    = torch.cat(all_anch, dim=0)
-        
+
             #-------------------------------------------------------------#
             #   计算当前图片中，真实框与预测框的重合程度
             #   iou的范围为0-1，取-log后为0~inf
@@ -338,7 +338,7 @@ class YOLOLoss(nn.Module):
             #   gt_cls_per_image    种类的真实信息
             #-------------------------------------------#
             gt_cls_per_image = F.one_hot(this_target[:, 1].to(torch.int64), self.num_classes).float().unsqueeze(1).repeat(1, pxyxys.shape[0], 1)
-            
+
             #-------------------------------------------#
             #   cls_preds_  种类置信度的预测信息
             #               cls_preds_越接近于1，y越接近于1
@@ -351,7 +351,7 @@ class YOLOLoss(nn.Module):
             y                   = cls_preds_.sqrt_()
             pair_wise_cls_loss  = F.binary_cross_entropy_with_logits(torch.log(y / (1 - y)), gt_cls_per_image, reduction="none").sum(-1)
             del cls_preds_
-        
+
             #-------------------------------------------#
             #   求cost的总和
             #-------------------------------------------#
@@ -392,7 +392,7 @@ class YOLOLoss(nn.Module):
             all_gi              = all_gi[fg_mask_inboxes]
             all_anch            = all_anch[fg_mask_inboxes]
             this_target         = this_target[matched_gt_inds]
-        
+
             for i in range(num_layer):
                 layer_idx = from_which_layer == i
                 matching_bs[i].append(all_b[layer_idx])
@@ -410,14 +410,14 @@ class YOLOLoss(nn.Module):
             matching_targets[i] = torch.cat(matching_targets[i], dim=0)
             matching_anchs[i]   = torch.cat(matching_anchs[i], dim=0)
 
-        return matching_bs, matching_as, matching_gjs, matching_gis, matching_targets, matching_anchs           
+        return matching_bs, matching_as, matching_gjs, matching_gis, matching_targets, matching_anchs
 
     def find_3_positive(self, predictions, targets):
         #------------------------------------#
         #   获得每个特征层先验框的数量
         #   与真实框的数量
         #------------------------------------#
-        num_anchor, num_gt  = len(self.anchors_mask[0]), targets.shape[0] 
+        num_anchor, num_gt  = len(self.anchors_mask[0]), targets.shape[0]
         #------------------------------------#
         #   创建空列表存放indices和anchors
         #------------------------------------#
@@ -441,7 +441,7 @@ class YOLOLoss(nn.Module):
             [0, 0],
             [1, 0], [0, 1], [-1, 0], [0, -1],  # j,k,l,m
             # [1, 1], [1, -1], [-1, 1], [-1, -1],  # jk,jm,lk,lm
-        ], device=targets.device).float() * g 
+        ], device=targets.device).float() * g
 
         for i in range(len(predictions)):
             #----------------------------------------------------#
@@ -453,7 +453,7 @@ class YOLOLoss(nn.Module):
             #   计算获得对应特征层的高宽
             #-------------------------------------------#
             gain[2:6] = torch.tensor(predictions[i].shape)[[3, 2, 3, 2]]
-            
+
             #-------------------------------------------#
             #   将真实框乘上gain，
             #   其实就是将真实框映射到特征层上
@@ -470,7 +470,7 @@ class YOLOLoss(nn.Module):
                 r = t[:, :, 4:6] / anchors_i[:, None]
                 j = torch.max(r, 1. / r).max(2)[0] < self.threshold
                 t = t[j]  # filter
-                
+
                 #-------------------------------------------#
                 #   gxy 获得所有先验框对应的真实框的x轴y轴坐标
                 #   gxi 取相对于该特征层的右小角的坐标
@@ -480,7 +480,7 @@ class YOLOLoss(nn.Module):
                 j, k    = ((gxy % 1. < g) & (gxy > 1.)).T
                 l, m    = ((gxi % 1. < g) & (gxi > 1.)).T
                 j       = torch.stack((torch.ones_like(j), j, k, l, m))
-                
+
                 #-------------------------------------------#
                 #   t   重复5次，使用满足条件的j进行框的提取
                 #   j   一共五行，代表当前特征点在五个
@@ -522,7 +522,7 @@ def is_parallel(model):
 def de_parallel(model):
     # De-parallelize a model: returns single-GPU model if model is of type DP or DDP
     return model.module if is_parallel(model) else model
-    
+
 def copy_attr(a, b, include=(), exclude=()):
     # Copy attributes from b to a, options to only include [...] and to exclude [...]
     for k, v in b.__dict__.items():
