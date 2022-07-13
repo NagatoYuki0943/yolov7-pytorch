@@ -102,7 +102,7 @@ class MP(nn.Module):
         return self.m(x)
 
 #-----------------------------------------------#
-#   dark3,dark4,dark5的下采样部分, 通道不变,宽高减半
+#   dark3,dark4,dark5的下采样部分, 通道不变,宽高减半(针对backbone)
 #   分支1 MaxPool2d + Conv
 #   分支2 Conv      + Conv
 #   最后将2个分支拼接返回
@@ -110,10 +110,10 @@ class MP(nn.Module):
 class Transition(nn.Module):
     def __init__(self, c1, c2):
         super(Transition, self).__init__()
-        # 分支1,通道减半
+        # 分支1,通道减半(针对backbone)
         self.mp  = MP()
         self.cv1 = Conv(c1, c2, 1, 1)
-        # 分支2,通道减半
+        # 分支2,通道减半(针对backbone)
         self.cv2 = Conv(c1, c2, 1, 1)
         self.cv3 = Conv(c2, c2, 3, 2)   # s=2
 
@@ -235,14 +235,14 @@ if __name__ == "__main__":
     #                     )
 
     # 检测模型是否完好
-    import onnx
-    o = onnx.load(onnx_path)
-    try:
-        onnx.checker.check_model(o)
-    except Exception:
-        print("Model incorrect")
-    else:
-        print("Model correct")
+    # import onnx
+    # o = onnx.load(onnx_path)
+    # try:
+    #     onnx.checker.check_model(o)
+    # except Exception:
+    #     print("Model incorrect")
+    # else:
+    #     print("Model correct")
 
     # Transition 通道不变,宽高减半
     trans = Transition(64, 32)

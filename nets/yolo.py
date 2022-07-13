@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from backbone import Backbone, Block, Conv, SiLU, Transition, autopad
+from nets.backbone import Backbone, Block, Conv, SiLU, Transition, autopad
 
 
 #-----------------------------------------------#
@@ -50,6 +50,10 @@ class SPPCSPC(nn.Module):
         y2 = self.cv2(x)
         return self.cv7(torch.cat((y1, y2), dim=1))
 
+#-----------------------------------------------#
+#   RepVGG的Conv
+#   PANet的三个输出都加了一个，通道发生变化，因此没有使用rbr_identity
+#-----------------------------------------------#
 class RepConv(nn.Module):
     # Represented convolution
     # https://arxiv.org/abs/2101.03697
@@ -70,6 +74,7 @@ class RepConv(nn.Module):
             self.rbr_reparam    = nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=True)
         # 训练时使用identity，3x3卷积和1x1卷积
         else:
+            # identity只在宽高和通道都不变时才使用
             self.rbr_identity   = (nn.BatchNorm2d(num_features=c1, eps=0.001, momentum=0.03) if c2 == c1 and s == 1 else None)
             self.rbr_dense      = nn.Sequential(
                 nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=False),
@@ -279,33 +284,79 @@ class YoloBody(nn.Module):
         #---------------------------------------------------#
         #   生成主干模型
         #   获得三个有效特征层，他们的shape分别是：
-        #   80, 80, 512
-        #   40, 40, 1024
-        #   20, 20, 1024
+        #   1, 512,  80, 80
+        #   1, 1024, 40, 40
+        #   1, 1024, 20, 20
         #---------------------------------------------------#
         self.backbone   = Backbone(transition_channels, block_channels, n, phi, pretrained=pretrained)
 
         self.upsample   = nn.Upsample(scale_factor=2, mode="nearest")
 
+        #---------------------------------------------------#
+        #   feat3的spp模块，通道减半
+        #   [1, 1024, 20, 20] -> [1, 512, 20, 20]
+        #---------------------------------------------------#
         self.sppcspc                = SPPCSPC(transition_channels * 32, transition_channels * 16)
+
+        #---------------------------------------------------#
+        #   PANet上采样部分
+        #---------------------------------------------------#
+        #   [1, 512, 20, 20] -> [1, 256, 20, 20]
         self.conv_for_P5            = Conv(transition_channels * 16, transition_channels * 8)
+        #   [1, 1024,40, 40] -> [1, 256, 40, 40]
         self.conv_for_feat2         = Conv(transition_channels * 32, transition_channels * 8)
+        #---------------------------------------------------#
+        #   backbone的dark block 参数2是隐藏通道,参数3是输出通道
+        #   [1, 512, 40, 40] -> [1, 256, 40, 40]
+        #---------------------------------------------------#
         self.conv3_for_upsample1    = Block(transition_channels * 16, panet_channels * 4, transition_channels * 8, e=e, n=n, ids=ids)
 
+        #   [1, 256, 40, 40] -> [1, 128, 40, 40]
         self.conv_for_P4            = Conv(transition_channels * 8, transition_channels * 4)
+        #   [1, 512, 80, 80] -> [1, 128, 80, 80]
         self.conv_for_feat1         = Conv(transition_channels * 16, transition_channels * 4)
+        #---------------------------------------------------#
+        #   backbone的dark block
+        #   [1, 256, 80, 80] -> [1, 128, 80, 80]
+        #---------------------------------------------------#
         self.conv3_for_upsample2    = Block(transition_channels * 8, panet_channels * 2, transition_channels * 4, e=e, n=n, ids=ids)
 
+        #---------------------------------------------------#
+        #   PANet下采样部分
+        #   下采样使用了backbone的Transition,因为参数2是两个分支独自的out_channel且会拼接,所以最终通道翻倍
+        #---------------------------------------------------#
+        #   [1, 128, 80, 80] -> [1, 256, 40, 40]
         self.down_sample1           = Transition(transition_channels * 4, transition_channels * 4)
+        #---------------------------------------------------#
+        #   backbone的dark block
+        #   [1, 512, 40, 40] -> [1, 256, 40, 40]
+        #---------------------------------------------------#
         self.conv3_for_downsample1  = Block(transition_channels * 16, panet_channels * 4, transition_channels * 8, e=e, n=n, ids=ids)
 
+        #   [1, 256, 40, 40] -> [1, 512, 20, 20]
         self.down_sample2           = Transition(transition_channels * 8, transition_channels * 8)
+        #---------------------------------------------------#
+        #   backbone的dark block
+        #   [1,1024, 20, 20] -> [1, 512, 20, 20]
+        #---------------------------------------------------#
         self.conv3_for_downsample2  = Block(transition_channels * 32, panet_channels * 8, transition_channels * 16, e=e, n=n, ids=ids)
 
+        #---------------------------------------------------#
+        #   repvgg部分,对PANet得3个输出进行计算
+        #---------------------------------------------------#
+        #   [1, 128, 80, 80] -> [1, 256, 80, 80]
         self.rep_conv_1 = conv(transition_channels * 4, transition_channels * 8, 3, 1)
+        #   [1, 256, 40, 40] -> [1, 512, 40, 40]
         self.rep_conv_2 = conv(transition_channels * 8, transition_channels * 16, 3, 1)
+        #   [1, 512, 20, 20] -> [1,1024, 20, 20]
         self.rep_conv_3 = conv(transition_channels * 16, transition_channels * 32, 3, 1)
 
+        #---------------------------------------------------#
+        #   对repvgg的三个输出进行计算三个特征层
+        #   y3 = [1, 256, 80, 80] -> [1, 3*(num_classes+4+1), 80, 80]
+        #   y2 = [1, 512, 40, 40] -> [1, 3*(num_classes+4+1), 40, 40]
+        #   y1 = [1,1024, 20, 20] -> [b, 3*(num_classes+4+1), 20, 20]
+        #---------------------------------------------------#
         self.yolo_head_P3 = nn.Conv2d(transition_channels * 8, len(anchors_mask[2]) * (5 + num_classes), 1)
         self.yolo_head_P4 = nn.Conv2d(transition_channels * 16, len(anchors_mask[1]) * (5 + num_classes), 1)
         self.yolo_head_P5 = nn.Conv2d(transition_channels * 32, len(anchors_mask[0]) * (5 + num_classes), 1)
@@ -322,46 +373,66 @@ class YoloBody(nn.Module):
         return self
 
     def forward(self, x):
-        #  backbone
+        #---------------------------------------------------#
+        #   生成主干模型
+        #   获得三个有效特征层，他们的shape分别是：
+        #   1, 512,  80, 80
+        #   1, 1024, 40, 40
+        #   1, 1024, 20, 20
+        #---------------------------------------------------#
         feat1, feat2, feat3 = self.backbone.forward(x)
 
+        #---------------------------------------------------#
+        #   feat3的spp模块，通道减半
+        #   [1, 1024, 20, 20] -> [1, 512, 20, 20]
+        #---------------------------------------------------#
         P5          = self.sppcspc(feat3)
-        P5_conv     = self.conv_for_P5(P5)
-        P5_upsample = self.upsample(P5_conv)
-        P4          = torch.cat([self.conv_for_feat2(feat2), P5_upsample], 1)
-        P4          = self.conv3_for_upsample1(P4)
+        #---------------------------------------------------#
+        #   PANet上采样部分
+        #---------------------------------------------------#
+        P5_conv     = self.conv_for_P5(P5)                                      # [1, 512, 20, 20] -> [1, 256, 20, 20]
+        P5_upsample = self.upsample(P5_conv)                                    # [1, 256, 20, 20] -> [1, 256, 40, 40]
+        P4          = torch.cat([self.conv_for_feat2(feat2), P5_upsample], 1)   # ([1,1024,40, 40] -> [1, 256, 40, 40]) cat [1, 256, 40, 40] = [1, 512, 40, 40]
+        P4          = self.conv3_for_upsample1(P4)                              # [1, 512, 40, 40] -> [1, 256, 40, 40]
 
-        P4_conv     = self.conv_for_P4(P4)
-        P4_upsample = self.upsample(P4_conv)
-        P3          = torch.cat([self.conv_for_feat1(feat1), P4_upsample], 1)
-        P3          = self.conv3_for_upsample2(P3)
+        P4_conv     = self.conv_for_P4(P4)                                      # [1, 256, 40, 40] -> [1, 128, 40, 40]
+        P4_upsample = self.upsample(P4_conv)                                    # [1, 128, 40, 40] -> [1, 128, 80, 80]
+        P3          = torch.cat([self.conv_for_feat1(feat1), P4_upsample], 1)   # ([1,512, 80, 80] -> [1, 128, 80, 80]) cat [1, 128, 80, 80] = [1, 256, 80, 80]
+        P3_out      = self.conv3_for_upsample2(P3)                              # [1, 256, 80, 80] -> [1, 128, 80, 80]
 
-        P3_downsample = self.down_sample1(P3)
-        P4 = torch.cat([P3_downsample, P4], 1)
-        P4 = self.conv3_for_downsample1(P4)
+        #---------------------------------------------------#
+        #   PANet下采样部分
+        #---------------------------------------------------#
+        P3_downsample = self.down_sample1(P3_out)                               # [1, 128, 80, 80] -> [1, 256, 40, 40]
+        P4 = torch.cat([P3_downsample, P4], 1)                                  # [1, 256, 40, 40]cat [1, 256, 40, 40] = [1, 512, 40, 40]
+        P4_out = self.conv3_for_downsample1(P4)                                 # [1, 512, 40, 40] -> [1, 256, 40, 40]
 
-        P4_downsample = self.down_sample2(P4)
-        P5 = torch.cat([P4_downsample, P5], 1)
-        P5 = self.conv3_for_downsample2(P5)
+        P4_downsample = self.down_sample2(P4_out)                               # [1, 256, 40, 40] -> [1, 512, 20, 20]
+        P5 = torch.cat([P4_downsample, P5], 1)                                  # [1, 512, 20, 20]cat [1, 512, 20, 20] = [1, 1024, 20, 20]
+        P5_out = self.conv3_for_downsample2(P5)                                 # [1,1024, 20, 20] -> [1, 512, 20, 20]
 
-        P3 = self.rep_conv_1(P3)
-        P4 = self.rep_conv_2(P4)
-        P5 = self.rep_conv_3(P5)
+        #---------------------------------------------------#
+        #   repvgg部分,对PANet得3个输出进行计算
+        #---------------------------------------------------#
+        P3_rep = self.rep_conv_1(P3_out)                                        # [1, 128, 80, 80] -> [1, 256, 80, 80]
+        P4_rep = self.rep_conv_2(P4_out)                                        # [1, 256, 40, 40] -> [1, 512, 40, 40]
+        P5_rep = self.rep_conv_3(P5_out)                                        # [1, 512, 20, 20] -> [1,1024, 20, 20]
+
         #---------------------------------------------------#
         #   第三个特征层
-        #   y3=(batch_size, 75, 80, 80)
+        #   y3 = [1, 256, 80, 80] -> [1, 3*(num_classes+4+1), 80, 80]
         #---------------------------------------------------#
-        out2 = self.yolo_head_P3(P3)
+        out2 = self.yolo_head_P3(P3_rep)
         #---------------------------------------------------#
         #   第二个特征层
-        #   y2=(batch_size, 75, 40, 40)
+        #   y2 = [1, 512, 40, 40] -> [1, 3*(num_classes+4+1), 40, 40]
         #---------------------------------------------------#
-        out1 = self.yolo_head_P4(P4)
+        out1 = self.yolo_head_P4(P4_rep)
         #---------------------------------------------------#
         #   第一个特征层
-        #   y1=(batch_size, 75, 20, 20)
+        #   y1 = [1,1024, 20, 20] -> [b, 3*(num_classes+4+1), 20, 20]
         #---------------------------------------------------#
-        out0 = self.yolo_head_P5(P5)
+        out0 = self.yolo_head_P5(P5_rep)
 
         return [out0, out1, out2]
 
@@ -372,7 +443,7 @@ if __name__ == "__main__":
     phi          = 'l'
     yolobody = YoloBody(anchors_mask, num_classes, phi)
     x = torch.randn(1, 3, 640, 640)
-    yolobody.fuse();
+    # yolobody.fuse();
 
     yolobody.eval()
     out0, out1, out2 = yolobody(x)
@@ -381,23 +452,23 @@ if __name__ == "__main__":
     print(out2.size())     # [1, 75, 80, 80]
 
     onnx_path = "./model_data/yolov7_weights_fuse.onnx"
-    torch.onnx.export(yolobody,                     # 保存的模型
-                        x,                          # 模型输入
-                        onnx_path,                  # 模型保存 (can be a file or file-like object)
-                        export_params=True,         # 如果指定为True或默认, 参数也会被导出. 如果你要导出一个没训练过的就设为 False.
-                        verbose=False,              # 如果为True，则打印一些转换日志，并且onnx模型中会包含doc_string信息
-                        opset_version=15,           # ONNX version 值必须等于_onnx_main_opset或在_onnx_stable_opsets之内。具体可在torch/onnx/symbolic_helper.py中找到
-                        do_constant_folding=True,   # 是否使用“常量折叠”优化。常量折叠将使用一些算好的常量来优化一些输入全为常量的节点。
-                        input_names=["input"],      # 按顺序分配给onnx图的输入节点的名称列表
-                        output_names=["out0", "out1", "out2"],    # 按顺序分配给onnx图的输出节点的名称列表
-                        )
+    # torch.onnx.export(yolobody,                     # 保存的模型
+    #                     x,                          # 模型输入
+    #                     onnx_path,                  # 模型保存 (can be a file or file-like object)
+    #                     export_params=True,         # 如果指定为True或默认, 参数也会被导出. 如果你要导出一个没训练过的就设为 False.
+    #                     verbose=False,              # 如果为True，则打印一些转换日志，并且onnx模型中会包含doc_string信息
+    #                     opset_version=15,           # ONNX version 值必须等于_onnx_main_opset或在_onnx_stable_opsets之内。具体可在torch/onnx/symbolic_helper.py中找到
+    #                     do_constant_folding=True,   # 是否使用“常量折叠”优化。常量折叠将使用一些算好的常量来优化一些输入全为常量的节点。
+    #                     input_names=["input"],      # 按顺序分配给onnx图的输入节点的名称列表
+    #                     output_names=["out0", "out1", "out2"],    # 按顺序分配给onnx图的输出节点的名称列表
+    #                     )
 
     # 检测模型是否完好
-    import onnx
-    o = onnx.load(onnx_path)
-    try:
-        onnx.checker.check_model(o)
-    except Exception:
-        print("Model incorrect")
-    else:
-        print("Model correct")
+    # import onnx
+    # o = onnx.load(onnx_path)
+    # try:
+    #     onnx.checker.check_model(o)
+    # except Exception:
+    #     print("Model incorrect")
+    # else:
+    #     print("Model correct")
