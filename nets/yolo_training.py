@@ -44,6 +44,7 @@ class YOLOLoss(nn.Module):
             b1_x1, b1_y1, b1_x2, b1_y2 = box1[0], box1[1], box1[2], box1[3]
             b2_x1, b2_y1, b2_x2, b2_y2 = box2[0], box2[1], box2[2], box2[3]
         else:
+            # xywh
             b1_x1, b1_x2 = box1[0] - box1[2] / 2, box1[0] + box1[2] / 2
             b1_y1, b1_y2 = box1[1] - box1[3] / 2, box1[1] + box1[3] / 2
             b2_x1, b2_x2 = box2[0] - box2[2] / 2, box2[0] + box2[2] / 2
@@ -414,7 +415,7 @@ class YOLOLoss(nn.Module):
 
     def find_3_positive(self, predictions, targets):
         #------------------------------------#
-        #   获得每个特征层先验框的数量
+        #   获得每个特征层先验框的数量,中上下左右
         #   与真实框的数量
         #------------------------------------#
         num_anchor, num_gt  = len(self.anchors_mask[0]), targets.shape[0]

@@ -24,6 +24,8 @@ from nets.backbone import Backbone, Block, Conv, SiLU, Transition, autopad
 #          │                  │
 #       cv6(3x3)              │
 #          └────────┬─────────┘
+#                concat
+#                   │
 #                cv7(1X1)
 #                   │
 #                  out
