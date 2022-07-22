@@ -395,9 +395,9 @@ class YoloBody(nn.Module):
         P5_conv     = self.conv_for_P5(P5)                                      # [1, 512, 20, 20] -> [1, 256, 20, 20]
         P5_upsample = self.upsample(P5_conv)                                    # [1, 256, 20, 20] -> [1, 256, 40, 40]
         P4          = torch.cat([self.conv_for_feat2(feat2), P5_upsample], 1)   # ([1,1024,40, 40] -> [1, 256, 40, 40]) cat [1, 256, 40, 40] = [1, 512, 40, 40]
-        P4          = self.conv3_for_upsample1(P4)                              # [1, 512, 40, 40] -> [1, 256, 40, 40]
+        P4_td       = self.conv3_for_upsample1(P4)                              # [1, 512, 40, 40] -> [1, 256, 40, 40]
 
-        P4_conv     = self.conv_for_P4(P4)                                      # [1, 256, 40, 40] -> [1, 128, 40, 40]
+        P4_conv     = self.conv_for_P4(P4_td)                                   # [1, 256, 40, 40] -> [1, 128, 40, 40]
         P4_upsample = self.upsample(P4_conv)                                    # [1, 128, 40, 40] -> [1, 128, 80, 80]
         P3          = torch.cat([self.conv_for_feat1(feat1), P4_upsample], 1)   # ([1,512, 80, 80] -> [1, 128, 80, 80]) cat [1, 128, 80, 80] = [1, 256, 80, 80]
         P3_out      = self.conv3_for_upsample2(P3)                              # [1, 256, 80, 80] -> [1, 128, 80, 80]
@@ -406,12 +406,12 @@ class YoloBody(nn.Module):
         #   PANet下采样部分
         #---------------------------------------------------#
         P3_downsample = self.down_sample1(P3_out)                               # [1, 128, 80, 80] -> [1, 256, 40, 40]
-        P4 = torch.cat([P3_downsample, P4], 1)                                  # [1, 256, 40, 40]cat [1, 256, 40, 40] = [1, 512, 40, 40]
-        P4_out = self.conv3_for_downsample1(P4)                                 # [1, 512, 40, 40] -> [1, 256, 40, 40]
+        P4_td         = torch.cat([P3_downsample, P4_td], 1)                    # [1, 256, 40, 40]cat [1, 256, 40, 40] = [1, 512, 40, 40]
+        P4_out        = self.conv3_for_downsample1(P4_td)                       # [1, 512, 40, 40] -> [1, 256, 40, 40]
 
         P4_downsample = self.down_sample2(P4_out)                               # [1, 256, 40, 40] -> [1, 512, 20, 20]
-        P5 = torch.cat([P4_downsample, P5], 1)                                  # [1, 512, 20, 20]cat [1, 512, 20, 20] = [1, 1024, 20, 20]
-        P5_out = self.conv3_for_downsample2(P5)                                 # [1,1024, 20, 20] -> [1, 512, 20, 20]
+        P5            = torch.cat([P4_downsample, P5], 1)                       # [1, 512, 20, 20]cat [1, 512, 20, 20] = [1, 1024, 20, 20]
+        P5_out        = self.conv3_for_downsample2(P5)                          # [1,1024, 20, 20] -> [1, 512, 20, 20]
 
         #---------------------------------------------------#
         #   repvgg部分,对PANet得3个输出进行计算
