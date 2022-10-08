@@ -37,6 +37,7 @@ class Conv(nn.Module):
     def fuseforward(self, x):
         return self.act(self.conv(x))
 
+
 #-----------------------------------------------#
 #   dark2,dark3,dark4,dark5的block
 #                   in
@@ -60,17 +61,9 @@ class Conv(nn.Module):
 #                   │
 #                  out
 #-----------------------------------------------#
-class Block(nn.Module):
+class Multi_Concat_Block(nn.Module):
     def __init__(self, c1, c2, c3, n=4, e=1, ids=[0]):
-        """
-        c1: in_channels
-        c2: mid_channels
-        c3: out_channels
-        n:  c3的Conv重复次数
-        e:  mid_channels的宽度变化倍率
-        ids:返回的id,包含cv1,cv2和cv3的(n-2)个输出id
-        """
-        super(Block, self).__init__()
+        super(Multi_Concat_Block, self).__init__()
         c_ = int(c2 * e)
 
         self.ids = ids
@@ -115,16 +108,17 @@ class MP(nn.Module):
     def forward(self, x):
         return self.m(x)
 
+
 #-----------------------------------------------#
 #   dark3,dark4,dark5的下采样部分, 通道不变,宽高减半(针对backbone)
 #   分支1 MaxPool2d + Conv
 #   分支2 Conv      + Conv
 #   最后将2个分支拼接返回
 #-----------------------------------------------#
-class Transition(nn.Module):
+class Transition_Block(nn.Module):
     def __init__(self, c1, c2):
-        super(Transition, self).__init__()
-        # 分支1,通道减半(针对backbone)
+        super(Transition_Block, self).__init__()
+
         self.mp  = MP()
         self.cv1 = Conv(c1, c2, 1, 1)
         # 分支2,通道减半(针对backbone)
@@ -140,6 +134,7 @@ class Transition(nn.Module):
 
         # 两个通道减半拼接到一起最终通道不变
         return torch.cat([x_2, x_1], 1)
+
 
 class Backbone(nn.Module):
     def __init__(self, transition_channels, block_channels, n, phi, pretrained=False):
@@ -164,23 +159,23 @@ class Backbone(nn.Module):
         #   [1, 64, 320, 320] -> [1, 256, 160, 160]
         self.dark2 = nn.Sequential(
             Conv(transition_channels * 2, transition_channels * 4, 3, 2),   # s=2
-            Block(transition_channels * 4, block_channels * 2, transition_channels * 8, n=n, ids=ids),
+            Multi_Concat_Block(transition_channels * 4, block_channels * 2, transition_channels * 8, n=n, ids=ids),
         )
         #   [1, 256, 160, 160] -> [1, 512, 80, 80]
         #   Transition这里的参数2是两个分支的输出channel,最后拼接到一起通道和输入时相同
         self.dark3 = nn.Sequential(
-            Transition(transition_channels * 8, transition_channels * 4),
-            Block(transition_channels * 8, block_channels * 4, transition_channels * 16, n=n, ids=ids),
+            Transition_Block(transition_channels * 8, transition_channels * 4),
+            Multi_Concat_Block(transition_channels * 8, block_channels * 4, transition_channels * 16, n=n, ids=ids),
         )
         #   [1, 512, 80, 80] -> [1, 1024, 40, 40]
         self.dark4 = nn.Sequential(
-            Transition(transition_channels * 16, transition_channels * 8),
-            Block(transition_channels * 16, block_channels * 8, transition_channels * 32, n=n, ids=ids),
+            Transition_Block(transition_channels * 16, transition_channels * 8),
+            Multi_Concat_Block(transition_channels * 16, block_channels * 8, transition_channels * 32, n=n, ids=ids),
         )
         #   [1, 1024, 40, 40] -> [1, 1024, 20, 20]
         self.dark5 = nn.Sequential(
-            Transition(transition_channels * 32, transition_channels * 16),
-            Block(transition_channels * 32, block_channels * 8, transition_channels * 32, n=n, ids=ids),
+            Transition_Block(transition_channels * 32, transition_channels * 16),
+            Multi_Concat_Block(transition_channels * 32, block_channels * 8, transition_channels * 32, n=n, ids=ids),
         )
 
         if pretrained:

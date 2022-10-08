@@ -8,7 +8,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-
 def smooth_BCE(eps=0.1):  # https://github.com/ultralytics/yolov3/issues/238#issuecomment-598028441
     # return positive, negative label smoothing BCE targets
     return 1.0 - 0.5 * eps, 0.5 * eps
@@ -450,6 +449,7 @@ class YOLOLoss(nn.Module):
             #   anchors_i [num_anchor, 2]
             #----------------------------------------------------#
             anchors_i = torch.from_numpy(self.anchors[i] / self.stride[i]).type_as(predictions[i])
+            anchors_i, shape = torch.from_numpy(self.anchors[i] / self.stride[i]).type_as(predictions[i]), predictions[i].shape
             #-------------------------------------------#
             #   计算获得对应特征层的高宽
             #-------------------------------------------#
@@ -511,7 +511,7 @@ class YOLOLoss(nn.Module):
             #   a代表属于该特征点的第几个先验框
             #-------------------------------------------#
             a = t[:, 6].long()  # anchor indices
-            indices.append((b, a, gj.clamp_(0, gain[3] - 1), gi.clamp_(0, gain[2] - 1)))  # image, anchor, grid indices
+            indices.append((b, a, gj.clamp_(0, shape[2] - 1), gi.clamp_(0, shape[3] - 1)))  # image, anchor, grid indices
             anchors.append(anchors_i[a])  # anchors
 
         return indices, anchors

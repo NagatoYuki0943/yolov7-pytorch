@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from nets.backbone import Backbone, Block, Conv, SiLU, Transition, autopad
+from nets.backbone import Backbone, Multi_Concat_Block, Conv, SiLU, Transition_Block, autopad
 
 
 #-----------------------------------------------#
@@ -311,7 +311,7 @@ class YoloBody(nn.Module):
         #   backbone的dark block 参数2是隐藏通道,参数3是输出通道
         #   [1, 512, 40, 40] -> [1, 256, 40, 40]
         #---------------------------------------------------#
-        self.conv3_for_upsample1    = Block(transition_channels * 16, panet_channels * 4, transition_channels * 8, e=e, n=n, ids=ids)
+        self.conv3_for_upsample1    = Multi_Concat_Block(transition_channels * 16, panet_channels * 4, transition_channels * 8, e=e, n=n, ids=ids)
 
         #   [1, 256, 40, 40] -> [1, 128, 40, 40]
         self.conv_for_P4            = Conv(transition_channels * 8, transition_channels * 4)
@@ -321,27 +321,27 @@ class YoloBody(nn.Module):
         #   backbone的dark block
         #   [1, 256, 80, 80] -> [1, 128, 80, 80]
         #---------------------------------------------------#
-        self.conv3_for_upsample2    = Block(transition_channels * 8, panet_channels * 2, transition_channels * 4, e=e, n=n, ids=ids)
+        self.conv3_for_upsample2    = Multi_Concat_Block(transition_channels * 8, panet_channels * 2, transition_channels * 4, e=e, n=n, ids=ids)
 
         #---------------------------------------------------#
         #   PANet下采样部分
         #   下采样使用了backbone的Transition,因为参数2是两个分支独自的out_channel且会拼接,所以最终通道翻倍
         #---------------------------------------------------#
         #   [1, 128, 80, 80] -> [1, 256, 40, 40]
-        self.down_sample1           = Transition(transition_channels * 4, transition_channels * 4)
+        self.down_sample1           = Transition_Block(transition_channels * 4, transition_channels * 4)
         #---------------------------------------------------#
         #   backbone的dark block
         #   [1, 512, 40, 40] -> [1, 256, 40, 40]
         #---------------------------------------------------#
-        self.conv3_for_downsample1  = Block(transition_channels * 16, panet_channels * 4, transition_channels * 8, e=e, n=n, ids=ids)
+        self.conv3_for_downsample1  = Multi_Concat_Block(transition_channels * 16, panet_channels * 4, transition_channels * 8, e=e, n=n, ids=ids)
 
         #   [1, 256, 40, 40] -> [1, 512, 20, 20]
-        self.down_sample2           = Transition(transition_channels * 8, transition_channels * 8)
+        self.down_sample2           = Transition_Block(transition_channels * 8, transition_channels * 8)
         #---------------------------------------------------#
         #   backbone的dark block
         #   [1,1024, 20, 20] -> [1, 512, 20, 20]
         #---------------------------------------------------#
-        self.conv3_for_downsample2  = Block(transition_channels * 32, panet_channels * 8, transition_channels * 16, e=e, n=n, ids=ids)
+        self.conv3_for_downsample2  = Multi_Concat_Block(transition_channels * 32, panet_channels * 8, transition_channels * 16, e=e, n=n, ids=ids)
 
         #---------------------------------------------------#
         #   repvgg部分,对PANet得3个输出进行计算
