@@ -453,35 +453,36 @@ if __name__ == "__main__":
     print(out1.size())     # [1, 75, 40, 40]
     print(out2.size())     # [1, 75, 80, 80]
 
-    onnx_path = "./model_data/yolov7_weights_fuse.onnx"
-    torch.onnx.export(yolobody,                     # 保存的模型
-                        x,                          # 模型输入
-                        onnx_path,                  # 模型保存 (can be a file or file-like object)
-                        export_params=True,         # 如果指定为True或默认, 参数也会被导出. 如果你要导出一个没训练过的就设为 False.
-                        verbose=False,              # 如果为True，则打印一些转换日志，并且onnx模型中会包含doc_string信息
-                        opset_version=15,           # ONNX version 值必须等于_onnx_main_opset或在_onnx_stable_opsets之内。具体可在torch/onnx/symbolic_helper.py中找到
-                        do_constant_folding=True,   # 是否使用“常量折叠”优化。常量折叠将使用一些算好的常量来优化一些输入全为常量的节点。
-                        input_names=["input"],      # 按顺序分配给onnx图的输入节点的名称列表
-                        output_names=["out0", "out1", "out2"],    # 按顺序分配给onnx图的输出节点的名称列表
-                        dynamic_axes={"input": {0: "batch_size"},   # 动态
-                                      "output": {0: "batch_size"}})
+    if False:
+        onnx_path = "./model_data/yolov7_weights_fuse.onnx"
+        torch.onnx.export(yolobody,                     # 保存的模型
+                            x,                          # 模型输入
+                            onnx_path,                  # 模型保存 (can be a file or file-like object)
+                            export_params=True,         # 如果指定为True或默认, 参数也会被导出. 如果你要导出一个没训练过的就设为 False.
+                            verbose=False,              # 如果为True，则打印一些转换日志，并且onnx模型中会包含doc_string信息
+                            opset_version=15,           # ONNX version 值必须等于_onnx_main_opset或在_onnx_stable_opsets之内。具体可在torch/onnx/symbolic_helper.py中找到
+                            do_constant_folding=True,   # 是否使用“常量折叠”优化。常量折叠将使用一些算好的常量来优化一些输入全为常量的节点。
+                            input_names=["input"],      # 按顺序分配给onnx图的输入节点的名称列表
+                            output_names=["out0", "out1", "out2"],    # 按顺序分配给onnx图的输出节点的名称列表
+                            dynamic_axes={"input": {0: "batch_size"},   # 动态
+                                        "output": {0: "batch_size"}})
 
-    import onnx
-    from onnxsim import simplify
-    # 载入onnx模块
-    model_ = onnx.load(onnx_path)
-    # print(model_)
+        import onnx
+        from onnxsim import simplify
+        # 载入onnx模块
+        model_ = onnx.load(onnx_path)
+        # print(model_)
 
-    # 简化模型,更好看
-    model_simp, check = simplify(model_)
-    assert check, "Simplified ONNX model could not be validated"
-    onnx.save(model_simp, onnx_path)
-    print('finished exporting onnx')
+        # 简化模型,更好看
+        model_simp, check = simplify(model_)
+        assert check, "Simplified ONNX model could not be validated"
+        onnx.save(model_simp, onnx_path)
+        print('finished exporting onnx')
 
-    # 检查IR是否良好
-    try:
-        onnx.checker.check_model(model_)
-    except Exception:
-        print("Model incorrect")
-    else:
-        print("Model correct")
+        # 检查IR是否良好
+        try:
+            onnx.checker.check_model(model_)
+        except Exception:
+            print("Model incorrect")
+        else:
+            print("Model correct")
