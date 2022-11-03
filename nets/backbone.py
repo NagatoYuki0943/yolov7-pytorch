@@ -10,10 +10,12 @@ def autopad(k, p=None):
         p = k // 2 if isinstance(k, int) else [x // 2 for x in k]
     return p
 
+
 class SiLU(nn.Module):
     @staticmethod
     def forward(x):
         return x * torch.sigmoid(x)
+
 
 #-----------------#
 #   Conv+BN+SiLU
@@ -96,6 +98,7 @@ class Multi_Concat_Block(nn.Module):
         #-----------------------------------------------#
         out = self.cv4(torch.cat([x_all[id] for id in self.ids], 1))
         return out
+
 
 #-----------------------------------------------#
 #   MaxPool2d k=2 s=2

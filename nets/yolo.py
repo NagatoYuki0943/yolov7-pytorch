@@ -52,6 +52,7 @@ class SPPCSPC(nn.Module):
         y2 = self.cv2(x)
         return self.cv7(torch.cat((y1, y2), dim=1))
 
+
 #-----------------------------------------------#
 #   RepVGG的Conv
 #   PANet的三个输出都加了一个，通道发生变化，因此没有使用rbr_identity
@@ -245,6 +246,7 @@ class RepConv(nn.Module):
             del self.rbr_dense
             self.rbr_dense = None
 
+
 def fuse_conv_and_bn(conv, bn):
     fusedconv = nn.Conv2d(conv.in_channels,
                           conv.out_channels,
@@ -262,6 +264,7 @@ def fuse_conv_and_bn(conv, bn):
     b_bn    = bn.bias - bn.weight.mul(bn.running_mean).div(torch.sqrt(bn.running_var + bn.eps))
     fusedconv.bias.copy_(torch.mm(w_bn, b_conv.reshape(-1, 1)).reshape(-1) + b_bn)
     return fusedconv
+
 
 #---------------------------------------------------#
 #   yolo_body
