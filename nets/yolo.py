@@ -42,8 +42,7 @@ class SPPCSPC(nn.Module):
         self.m = nn.ModuleList([nn.MaxPool2d(kernel_size=x, stride=1, padding=x // 2) for x in k])
         self.cv5 = Conv(4 * c_, c_, 1, 1)
         self.cv6 = Conv(c_, c_, 3, 1)
-
-        # final
+        # 输出通道数为c2
         self.cv7 = Conv(2 * c_, c2, 1, 1)
 
     def forward(self, x):
@@ -258,11 +257,13 @@ def fuse_conv_and_bn(conv, bn):
 
     w_conv  = conv.weight.clone().view(conv.out_channels, -1)
     w_bn    = torch.diag(bn.weight.div(torch.sqrt(bn.eps + bn.running_var)))
-    fusedconv.weight.copy_(torch.mm(w_bn, w_conv).view(fusedconv.weight.shape))
+    # fusedconv.weight.copy_(torch.mm(w_bn, w_conv).view(fusedconv.weight.shape))
+    fusedconv.weight.copy_(torch.mm(w_bn, w_conv).view(fusedconv.weight.shape).detach())
 
     b_conv  = torch.zeros(conv.weight.size(0), device=conv.weight.device) if conv.bias is None else conv.bias
     b_bn    = bn.bias - bn.weight.mul(bn.running_mean).div(torch.sqrt(bn.running_var + bn.eps))
-    fusedconv.bias.copy_(torch.mm(w_bn, b_conv.reshape(-1, 1)).reshape(-1) + b_bn)
+    # fusedconv.bias.copy_(torch.mm(w_bn, b_conv.reshape(-1, 1)).reshape(-1) + b_bn)
+    fusedconv.bias.copy_((torch.mm(w_bn, b_conv.reshape(-1, 1)).reshape(-1) + b_bn).detach())
     return fusedconv
 
 
@@ -295,6 +296,7 @@ class YoloBody(nn.Module):
         #---------------------------------------------------#
         self.backbone   = Backbone(transition_channels, block_channels, n, phi, pretrained=pretrained)
 
+        #------------------------加强特征提取网络------------------------#
         self.upsample   = nn.Upsample(scale_factor=2, mode="nearest")
 
         #---------------------------------------------------#
@@ -345,6 +347,7 @@ class YoloBody(nn.Module):
         #   [1,1024, 20, 20] -> [1, 512, 20, 20]
         #---------------------------------------------------#
         self.conv3_for_downsample2  = Multi_Concat_Block(transition_channels * 32, panet_channels * 8, transition_channels * 16, e=e, n=n, ids=ids)
+        #------------------------加强特征提取网络------------------------#
 
         #---------------------------------------------------#
         #   repvgg部分,对PANet得3个输出进行计算
@@ -358,12 +361,15 @@ class YoloBody(nn.Module):
 
         #---------------------------------------------------#
         #   对repvgg的三个输出进行计算三个特征层
+        #   4 + 1 + num_classes
         #   y3 = [1, 256, 80, 80] -> [1, 3*(num_classes+4+1), 80, 80]
         #   y2 = [1, 512, 40, 40] -> [1, 3*(num_classes+4+1), 40, 40]
         #   y1 = [1,1024, 20, 20] -> [b, 3*(num_classes+4+1), 20, 20]
         #---------------------------------------------------#
         self.yolo_head_P3 = nn.Conv2d(transition_channels * 8, len(anchors_mask[2]) * (5 + num_classes), 1)
+        # 40, 40, 512 => 40, 40, 3 * 25 & 85
         self.yolo_head_P4 = nn.Conv2d(transition_channels * 16, len(anchors_mask[1]) * (5 + num_classes), 1)
+        # 20, 20, 512 => 20, 20, 3 * 25 & 85
         self.yolo_head_P5 = nn.Conv2d(transition_channels * 32, len(anchors_mask[0]) * (5 + num_classes), 1)
 
     def fuse(self):
@@ -392,6 +398,7 @@ class YoloBody(nn.Module):
         #   [1, 1024, 20, 20] -> [1, 512, 20, 20]
         #---------------------------------------------------#
         P5          = self.sppcspc(feat3)
+
         #---------------------------------------------------#
         #   PANet上采样部分
         #---------------------------------------------------#
@@ -413,8 +420,8 @@ class YoloBody(nn.Module):
         P4_out        = self.conv3_for_downsample1(P4_td)                       # [1, 512, 40, 40] -> [1, 256, 40, 40]
 
         P4_downsample = self.down_sample2(P4_out)                               # [1, 256, 40, 40] -> [1, 512, 20, 20]
-        P5            = torch.cat([P4_downsample, P5], 1)                       # [1, 512, 20, 20]cat [1, 512, 20, 20] = [1, 1024, 20, 20]
-        P5_out        = self.conv3_for_downsample2(P5)                          # [1,1024, 20, 20] -> [1, 512, 20, 20]
+        P5_td         = torch.cat([P4_downsample, P5], 1)                       # [1, 512, 20, 20]cat [1, 512, 20, 20] = [1, 1024, 20, 20]
+        P5_out        = self.conv3_for_downsample2(P5_td)                       # [1,1024, 20, 20] -> [1, 512, 20, 20]
 
         #---------------------------------------------------#
         #   repvgg部分,对PANet得3个输出进行计算
