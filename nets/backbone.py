@@ -90,6 +90,7 @@ class Multi_Concat_Block(nn.Module):
         x_2 = self.cv2(x)
 
         x_all = [x_1, x_2]
+        # [-1, -3, -5, -6] => [5, 3, 1, 0]
         for i in range(len(self.cv3)):
             x_2 = self.cv3[i](x_2)
             x_all.append(x_2)
@@ -129,13 +130,16 @@ class Transition_Block(nn.Module):
         self.cv3 = Conv(c2, c2, 3, 2)   # s=2
 
     def forward(self, x):
+        # 160, 160, 256 => 80, 80, 256 => 80, 80, 128
         x_1 = self.mp(x)
         x_1 = self.cv1(x_1)
 
+        # 160, 160, 256 => 160, 160, 128 => 80, 80, 128
         x_2 = self.cv2(x)
         x_2 = self.cv3(x_2)
 
         # 两个通道减半拼接到一起最终通道不变
+        # 80, 80, 128 cat 80, 80, 128 => 80, 80, 256
         return torch.cat([x_2, x_1], 1)
 
 
@@ -153,29 +157,34 @@ class Backbone(nn.Module):
             'l' : [-1, -3, -5, -6],
             'x' : [-1, -3, -5, -7, -8],
         }[phi]
-        #   [1, 3, 640, 640] -> [1, 64, 320, 320]
+
+        # [1, 3, 640, 640] -> [1, 64, 320, 320]
         self.stem = nn.Sequential(
             Conv(3, transition_channels, 3, 1),
             Conv(transition_channels, transition_channels * 2, 3, 2),       # s=2
             Conv(transition_channels * 2, transition_channels * 2, 3, 1),
         )
-        #   [1, 64, 320, 320] -> [1, 256, 160, 160]
+
+        # [1, 64, 320, 320] -> [1, 128, 160, 160] -> [1, 256, 160, 160]
         self.dark2 = nn.Sequential(
             Conv(transition_channels * 2, transition_channels * 4, 3, 2),   # s=2
             Multi_Concat_Block(transition_channels * 4, block_channels * 2, transition_channels * 8, n=n, ids=ids),
         )
-        #   [1, 256, 160, 160] -> [1, 512, 80, 80]
-        #   Transition这里的参数2是两个分支的输出channel,最后拼接到一起通道和输入时相同
+
+        # [1, 256, 160, 160] -> [1, 256, 80, 80] -> [1, 512, 80, 80]
+        # Transition这里的参数2是两个分支的输出channel,最后拼接到一起通道和输入时相同
         self.dark3 = nn.Sequential(
             Transition_Block(transition_channels * 8, transition_channels * 4),
             Multi_Concat_Block(transition_channels * 8, block_channels * 4, transition_channels * 16, n=n, ids=ids),
         )
-        #   [1, 512, 80, 80] -> [1, 1024, 40, 40]
+
+        # [1, 512, 80, 80] -> [1, 512, 40, 40] -> [1, 1024, 40, 40]
         self.dark4 = nn.Sequential(
             Transition_Block(transition_channels * 16, transition_channels * 8),
             Multi_Concat_Block(transition_channels * 16, block_channels * 8, transition_channels * 32, n=n, ids=ids),
         )
-        #   [1, 1024, 40, 40] -> [1, 1024, 20, 20]
+
+        # [1, 1024, 40, 40] -> [1, 1024, 20, 20] -> [1, 1024, 20, 20]
         self.dark5 = nn.Sequential(
             Transition_Block(transition_channels * 32, transition_channels * 16),
             Multi_Concat_Block(transition_channels * 32, block_channels * 8, transition_channels * 32, n=n, ids=ids),
@@ -201,13 +210,13 @@ class Backbone(nn.Module):
         x = self.dark2(x)
         #-----------------------------------------------#
         #   [1, 256, 160, 160] -> [1, 512, 80, 80]
-        #   dark3的输出，是一个有效特征层
+        #   dark3的输出为80, 80, 512，是一个有效特征层
         #-----------------------------------------------#
         x = self.dark3(x)
         feat1 = x
         #-----------------------------------------------#
         #   [1, 512, 80, 80] -> [1, 1024, 40, 40]
-        #   dark4的输出，是一个有效特征层
+        #   dark4的输出为40, 40, 1024，是一个有效特征层
         #-----------------------------------------------#
         x = self.dark4(x)
         feat2 = x
