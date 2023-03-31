@@ -9,7 +9,7 @@ from nets.backbone import Backbone, Multi_Concat_Block, Conv, SiLU, Transition_B
 #   SPP
 #                   in
 #                   │
-#          ┌──────────────────┐
+#          ┌────────┴─────────┐
 #       cv1(1x1)           cv2(1x1)
 #          │                  │
 #       cv3(3x3)              │
