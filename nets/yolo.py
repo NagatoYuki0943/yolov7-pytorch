@@ -23,8 +23,7 @@ from nets.backbone import Backbone, Multi_Concat_Block, Conv, SiLU, Transition_B
 #       cv5(1x1)              │
 #          │                  │
 #       cv6(3x3)              │
-#          └────────┬─────────┘
-#                concat
+#          └─────concat───────┘
 #                   │
 #                cv7(1X1)
 #                   │
@@ -391,7 +390,7 @@ class YoloBody(nn.Module):
         #   1, 1024, 40, 40
         #   1, 1024, 20, 20
         #---------------------------------------------------#
-        feat1, feat2, feat3 = self.backbone.forward(x)
+        feat1, feat2, feat3 = self.backbone(x)
 
         #---------------------------------------------------#
         #   feat3的spp模块，通道减半
